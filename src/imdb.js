@@ -5,6 +5,7 @@
  */
 
 define(function (require, exports, module) {
+    var Chain = require('./Chain');
     var memset = require('./memset');
     var dbConf = {};
     
@@ -76,7 +77,7 @@ define(function (require, exports, module) {
      */
     exports.request = function (request, context, callback) {
         context = context || {};
-        var deferred = new Deferred();
+        var deferred = new Chain();
 
         // 如果请求对象创建失败
         if (!request) {
@@ -130,7 +131,7 @@ define(function (require, exports, module) {
      * 连接两次异步请求
      */
     exports.pipe = function (chain) {
-        return new Deferred();
+        return new Chain();
     };
 
     /**
@@ -167,15 +168,11 @@ define(function (require, exports, module) {
                 return Array.prototype.slice.call(data, 0);
             });
         } else {
-            var def = new Deferred();
-            var databases = localStorage.getItem('idb-databases') || '';
-            databases = databases.split(';');
-
-            setTimeout(function () {
-                def.resolve(databases);
-            }, 5);
-            
-            return def;
+            return new Promise(function (resolve, reject) {
+                var databases = localStorage.getItem('idb-databases') || '';
+                databases = databases.split(';');
+                resolve(databases);
+            });
         }
     };
 
@@ -248,7 +245,7 @@ define(function (require, exports, module) {
      * @param {Object} context 更新信息
      */
     exports.update = function (selector, context, option) {
-        var deferred = new Deferred();
+        var deferred = new Chain();
 
         // 支持mongodb $set, $inc指令已经自定义的复制函数$let
         var data = context.$set || context.value;
@@ -352,7 +349,7 @@ define(function (require, exports, module) {
      * - 不建议本地记录删除；删除策略改为标识移除
      */
     exports.remove = function (selector, context) {
-        var deferred = new Deferred();
+        var deferred = new Chain();
         // context 必须是可写状态
         context.writeMode = true;
 
@@ -449,7 +446,7 @@ define(function (require, exports, module) {
      */
     exports.insert = function (sets, context) {
         // 支持迭代promise
-        var deferred = context.deferred || new Deferred();
+        var deferred = context.deferred || new Chain();
 
         var storeName = context.storeName;
         var transaction = context.db.transaction(
@@ -548,7 +545,7 @@ define(function (require, exports, module) {
      * - 只有索引条件能够满足
      */
     exports.conditionCount = function (selector, context) {
-        var deferred = new Deferred();
+        var deferred = new Chain();
         var storeName = context.storeName;
         var transaction = context.db.transaction(
             [storeName], TransactionModes.READ_WRITE); 
@@ -591,7 +588,7 @@ define(function (require, exports, module) {
      * - 第一个记录用索引查找（后续改为智能匹配索引）
      */
     exports.find = function (selector, context, callback) {
-        var deferred = new Deferred();
+        var deferred = new Chain();
         var storeName = context.storeName;
 
         // 更新和删除等操作需要打开读写模式

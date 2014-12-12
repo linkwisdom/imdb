@@ -1,8 +1,9 @@
 /**
- * @file webkit 格式转化实现
- * 
+ * @file 格式转化实现
+ *
  * @author Liandong Liu (liuliandong01@baidu.com)
  */
+
 define(function (require, exports) {
 
     exports.json2csv = function (obj, keys) {

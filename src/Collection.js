@@ -1,3 +1,9 @@
+/**
+ * @file 数据集合对象
+ *
+ * @author Liandong Liu (liuliandong01@baidu.com)
+ */
+
 define(function (require, exports, module) {
     var idb = require('./imdb');
     var chain = require('./chain');
@@ -27,7 +33,7 @@ define(function (require, exports, module) {
 
             params = params || {};
 
-            var promise = idb.pipe(chain);
+            var promise = idb.pipe();
             var chain = getConnection(
                 params.level || level, 
                 {

@@ -1,3 +1,9 @@
+/**
+ * @file Memset 内存集合数据查询、更新管理器
+ *
+ * @author Liandong Liu (liuliandong01@baidu.com)
+ */
+ 
 define( function (require, exports) {
 
     function Memset(set) {

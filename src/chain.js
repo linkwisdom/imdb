@@ -1,13 +1,31 @@
+/**
+ * @file Chain promise-chain for imdb
+ * chain是为了支持所有的db操作支持链式数据处理、展现、及时
+ *
+ * @author Liandong Liu (liuliandong01@baidu.com)
+ */
+
 define(function (require, exports) {
-    var Deferred = window.Deferred || require('er/Deferred');
+    var Promise = require('./Promise');
     var format = require('./format');
     var memset = require('./memset');
+
+    var Chain = function () {
+        Promise.apply(this, arguments);
+    };
+
+    var proto = Promise.prototype;
+    for (var item in proto) {
+        if (proto.hasOwnProperty(item)) {
+            Chain.prototype[item] = proto[item];
+        }
+    }
 
     /**
      * 打印数据，方便调试接口
      * @param {Object} option
      */
-    Deferred.prototype.display = function (option) {
+    Chain.prototype.display = function (option) {
         option = option || {};
         var promise = this.then(function (data) {
             exports.display(data, option);
@@ -22,11 +40,11 @@ define(function (require, exports) {
     /**
      * 计算请求延迟时间
      */
-    Deferred.prototype.time = function (defer) {
+    Chain.prototype.time = function (defer) {
         var st = new Date();
         var promise = this.then(function (data) {
             var __time = new Date() - st;
-            console.log(__time);
+            console.info(__time);
 
             // 为了兼容
             if (typeof data == 'number') {
@@ -46,7 +64,7 @@ define(function (require, exports) {
      * 测试环境使用
      * - 线上应该删除
      */
-    Deferred.prototype.save = function (fileName) {
+    Chain.prototype.save = function (fileName) {
         var promise = this.then(function (data) {
             if (!fileName && data.length) {
                 fileName = (data[0].planid || 'material') + '.txt';
@@ -54,7 +72,13 @@ define(function (require, exports) {
 
             var content = format.array2csv(data);
             fs.writeFile(fileName, content);
-            console.log('view file: [ filesystem:http://%s/temporary/%s ]', location.host, fileName);
+
+            // info file path
+            console.info(
+                'view file: [ filesystem:http://%s/temporary/%s ]',
+                location.host,
+                fileName
+            );
             return data;
         });
 
@@ -75,7 +99,7 @@ define(function (require, exports) {
     }
 
     // 创建一个可链式操作的数据链
-    Deferred.prototype.chain = function () {
+    Chain.prototype.chain = function () {
         var def = this;
 
         for (var fun in exports) {
@@ -112,7 +136,7 @@ define(function (require, exports) {
 
         if (!console.table) {
             // firefox 版本可能不支持
-            console.log(data);
+            console.log(JSON.stringify(data, null, 4));
             return;
         }
 
@@ -129,4 +153,5 @@ define(function (require, exports) {
         return data;
     };
 
+    return Chain;
 });

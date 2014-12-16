@@ -6,7 +6,6 @@
 
 define(function (require, exports, module) {
     var idb = require('./imdb');
-    var chain = require('./chain');
 
     function getConnection(level, option) {
         var userid = option.userid || exports.userid;
@@ -231,7 +230,7 @@ define(function (require, exports, module) {
         this.level = level;
         this.userid = userid;
     };
-
+    
     Collectoin.prototype.__defineGetter__('find', function () {
         return getFinder(this.level, this.userid);
     });

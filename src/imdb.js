@@ -7,7 +7,7 @@
 define(function (require, exports, module) {
     var Chain = require('./Chain');
     var memset = require('./memset');
-    var dbConf = {};
+//    var dbConf = {};
     
     /**
      * 事务模型
@@ -64,9 +64,9 @@ define(function (require, exports, module) {
     /**
      * 设置db配置
      */
-    exports.setDbConf = function (config) {
-        dbConf = config;
-    };
+//     exports.setDbConf = function (config) {
+//         dbConf = config;
+//     };
 
     /**
      * 包装请求对象为Deferred对象
@@ -140,7 +140,7 @@ define(function (require, exports, module) {
     exports.open = function (context) {
         var request = null;
         // 如果dbConf有变更，则时数据结构的变化
-        context.version = dbConf.version;
+//        context.version = dbConf.version;
 
         if (context.version) {
             request = window.indexedDB.open(
@@ -186,9 +186,10 @@ define(function (require, exports, module) {
 
     /**
      * 为数据库批量创建库
+     * - 建议业务中自己实现createStore
      */
     exports.createStore = function (context) {
-        var stores = context.stores || Object.create(dbConf.stores);
+        var stores = context.stores;
 
         stores.forEach(function (store) {
             var indecies = store.indecies || [];

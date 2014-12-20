@@ -33,7 +33,6 @@ define(function (require, exports, module) {
      */
     function getRange(condition) {
         var tp = typeof condition;
-
         if (tp !== 'object' || Array.isArray(condition)) {
             if (condition === '$index') {
                 // 基于改字段索引查找, 暂定定义为0
@@ -116,7 +115,7 @@ define(function (require, exports, module) {
                 localStorage.setItem('idb-databases', databases.join(';'));
             }
            
-            exports.createStore({ db: db });
+            exports.createStore({ db: db, transaction: e.target.transaction });
             deferred.resolve(db);
         };
 
@@ -289,7 +288,6 @@ define(function (require, exports, module) {
                             }
                         }
                         
-
                         if (assign) {
                             var assigned = assign(cursor.value);
                             // 如果有返回值，则需要重写
@@ -473,10 +471,14 @@ define(function (require, exports, module) {
         transaction.onabort  = function (e) {
              // 如果插入失败；打印错误信息 
             if (e.type == 'abort') {
-                deferred.reject(e.target.error.message);
-                console.dir(e.target.error);
+                deferred.reject({
+                    data: this,
+                    error: e.target.error
+                });
+                
+                // console.dir(e.target.error);
             }
-        };
+        }.bind(sets);
 
         transaction.oncomplete = function (e) { 
             if (restList.length > 0) {
@@ -504,24 +506,41 @@ define(function (require, exports, module) {
             restList = sets.splice(SPLICE_SIZE);
         }
 
-        for (var i = 0; i < sets.length; i++) {
-            if (!sets[i]) {
-                console.log('无效数据 %s', i);
-                return;
-            }
-
+        var putting = {};
+        for (var i = 0, len = sets.length; i < len; i++) {
              // 缄默模式插入：数据库同步中开启
             if (context.silent) {
                 sets[i].__tag = TAG_STATE.ADD;
             }
+            
 
-            // todo id冲突检查
-            store.add(sets[i]);
-            // may be that i should use store.put
+            // 如果定义了数据库模式，通过模式检查或fix相关数据
+            if (context.fixItem && context.fixItem(sets[i])) {
+                putting = store.put(sets[i]); // put means upsert
+            } else if (context.upsert) {
+                // 添加或置换
+                putting = store.put(sets[i]);
+            } else {
+                // 默认直接添加操作
+                putting = store.add(sets[i]);
+            }
+
+            putting.onerror = context.errorHandler || putFail.bind(sets[i]);
+            // putting.onabort = context.onabort || putAbort.bind(sets[i]);
         }
         
         return deferred;
     };
+
+/// adding test
+    function putFail (error) {
+        this.error = error.target.error;
+        console.dir(this);
+    }
+
+    function putAbort (error) {
+       // console.dir(error);
+    }
 
     /**
      * 计算数据库内记录数量
@@ -619,6 +638,7 @@ define(function (require, exports, module) {
                 keys.unshift();
             }
         }
+       
         
         if (!filter && store.indexNames.contains[store.keyPath]) {
             // 如果没有指定查询条件，默认按主键查询
@@ -640,10 +660,12 @@ define(function (require, exports, module) {
         var needFilter = keys.length > 0;
         var startIndex = context.startIndex || context.skip || 0;
         var advance = true;
+        context.endIndex = startIndex; // 初始化为开始位置
 
         // 游标触发下次请求
         request.onsuccess = function (e) {
             var cursor = e.target.result;
+            context.endIndex++; // 记录本次查找条件下的结束位置
 
             if (advance && cursor) {
                 advance = false;
@@ -657,7 +679,7 @@ define(function (require, exports, module) {
                 var value = cursor.value;
                 
                 if (needFilter) {
-                    if ( memset.isMatchSelector(value, selector) ) {
+                    if (memset.isMatchSelector(value, selector) ) {
                         if (context.fields) {
                             value = memset.cut(value, context.fields);
                         }
@@ -674,6 +696,12 @@ define(function (require, exports, module) {
                 }
             } else {
                 callback && callback(cursor);
+                var info = {
+                    startIndex: startIndex,
+                    endIndex: context.endIndex
+                };
+
+                result.info = info;
                 deferred.resolve(result);
                  // 释放连接
                 context.db.close();

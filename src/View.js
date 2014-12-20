@@ -19,7 +19,7 @@ define(function (require, exports) {
 
         this.loader = new Loader({
             store: this.store,
-            datasource: this.datasource,
+            datasource: [],
             condition: this.condition,
             startIndex: 0,
             pageSize: this.pageSize,

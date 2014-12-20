@@ -25,10 +25,16 @@ define(function (require, exports) {
         return this.promise.then(fullfill, fail);
     };
 
-    Chain.prototype.display = function (data) {
-        return this.promise.then(function (data) {
-            console.log(data);
-        });
+    Chain.resolve = function (data) {
+        var chain = new Chain();
+        chain.resolve(data);
+        return chain;
+    };
+
+    Chain.reject = function (data) {
+        var chain = new Chain();
+        chain.reject(data);
+        return chain;
     };
 
     return Chain;

@@ -7,10 +7,15 @@
 define(function (require, exports) {
     var Schema = require('./Schema');
     var idb = require('./imdb');
+    var View = require('./View');
     
     function StoreSchema(option) {
-        this.storeName = option.storeName;
-        this.dbName = option.dbName;
+        for (var key in option) {
+            if (option.hasOwnProperty(key)) {
+                this[key] = option[key];
+            }
+        }
+
         Schema.call(this, option);
     }
 
@@ -33,6 +38,18 @@ define(function (require, exports) {
         );
     }
 
+    StoreSchema.prototype.page = function(selector, params) {
+        params = params || {};
+        var pageSize = params.pageSize = params.pageSize || params.count || 100;
+        var view = new View({
+            store: this,
+            condition: selector,
+            pageSize: pageSize,
+            params: params
+        });
+        return view;
+    };
+
     StoreSchema.prototype.query = function (selector, params, callback) {
         selector = selector || {};
         params = params || {};
@@ -53,6 +70,18 @@ define(function (require, exports) {
                     context[k] = params[k];
                 }
             }
+
+            // 如果传入数据是promse，需要多一次请求后再请求
+            if ('function'  == typeof selector.then) {
+                return selector.then(function (selector) {
+                    var state = callback(selector, context);
+                    return state.then(function (data) {
+                        promise.resolve(data);
+                        return data;
+                    });
+                });
+            }
+
             var state = callback(selector, context);
 
             // 只有请求数据回来后才算完成
@@ -121,12 +150,20 @@ define(function (require, exports) {
     };
 
     StoreSchema.prototype.insert = function (data, params) {
+        params = params || {};
+        
+        // fixItem 用于检查每个物料项目的模式是否完成有效
+        if (this.fixItem) {
+            params.fixItem = this.fixItem.bind(this);
+        }
+
         var handler = function (data, context) {
             return idb.insert(data, context);
         };
+
         return this.query(data, params, handler);
     };
-
+    
     StoreSchema.prototype.count = function (selector, params) {
         var handler = function (selector, context) {
             var keySize = Object.keys(selector).length;

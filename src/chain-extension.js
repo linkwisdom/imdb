@@ -17,7 +17,7 @@ define(function (require, exports) {
         option = option || {};
         var promise = this.then(
             function (data) {
-                console.log(data.info);
+                // console.log(data.info);
                 exports.display(data, option);
                 return data;
             },

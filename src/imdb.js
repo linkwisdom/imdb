@@ -221,19 +221,35 @@ define(function (require, exports, module) {
 
     /**
      * 通过主键id获取元素
+     * - 支持主键索引获取所有物料
      */
-    exports.getItem = function (primaryId, context) {
+    exports.getItem = function (primaryIds, context) {
+        var chain = new Chain();
         var storeName = context.storeName;
         var db = context.db; 
         var request = null;
+        var result = [];
+
+        var ids = [].concat(primaryIds);
+        var pushResult = function (e) {
+            result.push(e.target.result);
+            if (result.length == ids.length) {
+                chain.resolve(result);
+            }
+        };
                   
         if (db.objectStoreNames.contains(storeName)) {
             var transaction = db.transaction(storeName, TransactionModes.READ_ONLY); 
-            var store = transaction.objectStore(storeName); 
-            request = store.get(primaryId)
+            var store = transaction.objectStore(storeName);
+            ids.forEach(function (id) {
+                request = store.get(id).onsuccess = pushResult;
+            });
+
+            
         }
 
-        return exports.request(request, context); 
+        return chain;
+        //return exports.request(request, context); 
     };
 
     /**
@@ -533,12 +549,12 @@ define(function (require, exports, module) {
     };
 
 /// adding test
-    function putFail (error) {
+    function putFail(error) {
         this.error = error.target.error;
         console.dir(this);
     }
 
-    function putAbort (error) {
+    function putAbort(error) {
        // console.dir(error);
     }
 

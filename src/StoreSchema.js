@@ -11,7 +11,13 @@ define(function (require, exports) {
     
     function StoreSchema(option) {
         for (var key in option) {
-            if (option.hasOwnProperty(key)) {
+            if (key == 'config' && this.config) {
+                var cf = this.config;
+                for (var i in cf) {
+                    option.config[i] = option.config[i] || cf[i];
+                }
+                this.config = option.config;
+            } else if (option.hasOwnProperty(key)) {
                 this[key] = option[key];
             }
         }
@@ -38,7 +44,7 @@ define(function (require, exports) {
         );
     }
 
-    StoreSchema.prototype.page = function(selector, params) {
+    StoreSchema.prototype.page = function (selector, params) {
         params = params || {};
         var pageSize = params.pageSize = params.pageSize || params.count || 100;
         var view = new View({
@@ -49,7 +55,7 @@ define(function (require, exports) {
         });
         return view;
     };
-
+    
     StoreSchema.prototype.query = function (selector, params, callback) {
         selector = selector || {};
         params = params || {};
@@ -101,7 +107,7 @@ define(function (require, exports) {
             var state;
             if (typeof selector == 'string'
                 || typeof selector == 'number'
-                || Array.isArray(selector) ) {
+                || Array.isArray(selector)) {
                 // id 查找
                 state = idb.getItem(selector, context);
             } else {

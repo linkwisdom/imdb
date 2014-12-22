@@ -23,7 +23,6 @@ define(function (require, exports) {
             condition: this.condition,
             startIndex: 0,
             pageSize: this.pageSize,
-            loadPages: 3,
             endIndex: 0
         });
     }

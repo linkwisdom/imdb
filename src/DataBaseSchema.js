@@ -63,11 +63,13 @@ define(function (require, exports) {
         });
     };
 
-    
-
     DataBaseSchema.prototype.create = function (schema) {
         this.schema = schema;
         this.updateVersion();
+    };
+
+    DataBaseSchema.prototype.use = function () {
+        
     };
 
     DataBaseSchema.prototype.updateVersion = function () {

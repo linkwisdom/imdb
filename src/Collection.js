@@ -52,7 +52,7 @@ define(function (require, exports, module) {
                     // id 查找
                     state = idb.getItem(selector, context);
                 } else {
-                    
+
                     // 如果查询条件没有指定__tag条件；默认只显示未删除的数据
 //                     if (selector.__tag == undefined) {
 //                         // __tag = null; __tag = undefined

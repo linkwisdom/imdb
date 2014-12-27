@@ -30,33 +30,36 @@ define(function (require, exports) {
     /**
      * 为数据库批量创建库
      * - 建议业务中自己实现createStore
+     * @param {Object} context 上下文对象
      */
     DataBaseSchema.prototype.createStore = function (context) {
         var stores = context.stores || Object.create(this.stores);
         stores.forEach(function (store) {
             var indecies = store.indecies || [];
             var objectStore = {};
-            
+
             if (!context.db.objectStoreNames.contains(store.name)) {
                 objectStore = context.db.createObjectStore(store.name, {
                     keyPath: store.key,
                     autoIncrement: store.autoIncrement || false
                 });
-            } else {
-                objectStore = context.transaction.objectStore(store.name)
             }
-            
+            else {
+                objectStore = context.transaction.objectStore(store.name);
+            }
+
             // 创建索引
             indecies.forEach(function (indexer) {
-                if (typeof indexer == 'string') {
+                if (typeof indexer === 'string') {
                     if (!objectStore.indexNames.contains(indexer)) {
-                        objectStore.createIndex(indexer, indexer, { unique: false });
+                        objectStore.createIndex(indexer, indexer, {unique: false});
                     }
-                } else if (typeof indexer == 'object') {
+                }
+                else if (typeof indexer === 'object') {
                     // 支持组合约束条件
                     objectStore.createIndex(
                         indexer.name, indexer.keys,
-                        { unique: indexer.unique || false }
+                        {unique: indexer.unique || false}
                     );
                 }
             });
@@ -66,14 +69,6 @@ define(function (require, exports) {
     DataBaseSchema.prototype.create = function (schema) {
         this.schema = schema;
         this.updateVersion();
-    };
-
-    DataBaseSchema.prototype.use = function () {
-        
-    };
-
-    DataBaseSchema.prototype.updateVersion = function () {
-
     };
 
     return DataBaseSchema;

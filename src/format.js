@@ -12,13 +12,12 @@ define(function (require, exports) {
 
             if (Array.isArray(data)) {
                 data = data.join(',');
-            } else if ('object' == typeof data) {
+            } else if ('object' === typeof data) {
                 data = typeof data;
             }
 
-            return data != undefined ? data : '';
+            return data !== undefined ? data : '';
         });
-        
         return arr.join('\t');
     };
 
@@ -30,7 +29,7 @@ define(function (require, exports) {
         keys = keys || Object.keys(list[0]);
 
         keys = keys.filter(function (key) {
-            return key.substr(0, 2) != '__';
+            return key.substr(0, 2) !== '__';
         });
 
         var result = list.map(function (item) {
@@ -38,7 +37,6 @@ define(function (require, exports) {
         });
 
         result.unshift(keys.join('\t'));
-
         return result.join('\n');
     };
 });

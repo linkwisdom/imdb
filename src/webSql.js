@@ -29,9 +29,9 @@ define(function (require, exports, module) {
         if (!this.dbName) {
             this.db = exports.create(DEFAULT_DB_NAME, DEFAULT_OPTION);
         }
-
-        var dbName = this.dbName;
-        var option = this.option || DEFAULT_OPTION;
+        var db = this.db;
+        var dbName = db.dbName;
+        var option = db.option || DEFAULT_OPTION;
 
         var db = openDatabase(
             dbName, // 数据库名称
@@ -45,8 +45,8 @@ define(function (require, exports, module) {
                     function (t) {
                         t.executeSql('CREATE TABLE docids (id, name)');
                     },
-                    function (t) {
-                        t.executeSql('CREATE TABLE docids (id, name)');
+                    function (error) {
+                        console.error(error);
                     }
                 );
             }
@@ -84,7 +84,6 @@ define(function (require, exports, module) {
             this.db.transaction(exports.getQuery(sql, patches || [], promise));
         }
         
-
         promise.done(function (data) {
             var result = [];
             if (data.rows.length) {

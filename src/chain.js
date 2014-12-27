@@ -1,5 +1,5 @@
 /**
- * @file Promise 扩展支持then与done, 
+ * @file Promise 扩展支持then与done
  * 支持异步resolve, 支持链式扩展
  *
  * @author Liandong Liu (liuliandong01@baidu.com)
@@ -14,7 +14,7 @@ define(function (require, exports) {
             chain.resolve = resolve.bind(chain);
             chain.reject = reject.bind(chain);
         });
-        this.promise = promise;        
+        this.promise = promise;
     }
 
     Chain.prototype.then = function (fullfill, fail) {

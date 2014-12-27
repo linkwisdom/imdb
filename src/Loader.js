@@ -24,9 +24,10 @@ define(function (require, exports) {
         var chain = new Chain();
         if (pager.hasNext() < 1) {
             loader.load({pageCount: 2}).then(function () {
-                chain.resolve(pager.get(option))
+                chain.resolve(pager.get(option));
             });
-        } else {
+        }
+        else {
             chain.resolve(pager.get(option));
         }
         return chain;

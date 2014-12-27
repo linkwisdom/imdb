@@ -8,16 +8,19 @@ define(function (require, exports) {
     var Schema = require('./Schema');
     var idb = require('./imdb');
     var View = require('./View');
-    
+
     function StoreSchema(option) {
         for (var key in option) {
-            if (key == 'config' && this.config) {
+            if (key === 'config' && this.config) {
                 var cf = this.config;
                 for (var i in cf) {
-                    option.config[i] = option.config[i] || cf[i];
+                    if (cf.hasOwnProperty(i)) {
+                        option.config[i] = option.config[i] || cf[i];
+                    }
                 }
                 this.config = option.config;
-            } else if (option.hasOwnProperty(key)) {
+            }
+            else if (option.hasOwnProperty(key)) {
                 this[key] = option[key];
             }
         }
@@ -55,7 +58,7 @@ define(function (require, exports) {
         });
         return view;
     };
-    
+
     StoreSchema.prototype.query = function (selector, params, callback) {
         selector = selector || {};
         params = params || {};
@@ -63,7 +66,7 @@ define(function (require, exports) {
         // 建立连接
         var promise = idb.pipe();
         var chain = getConnection(
-            this.storeName, 
+            this.storeName,
             {
                 dbName: this.dbName
             }
@@ -78,7 +81,7 @@ define(function (require, exports) {
             }
 
             // 如果传入数据是promse，需要多一次请求后再请求
-            if ('function'  == typeof selector.then) {
+            if ('function'  === typeof selector.then) {
                 return selector.then(function (selector) {
                     var state = callback(selector, context);
                     return state.then(function (data) {
@@ -99,20 +102,21 @@ define(function (require, exports) {
 
         // 连接后进行查询
         chain.then(handler);
-        return promise;     
+        return promise;
     };
 
     StoreSchema.prototype.find = function (selector, params) {
         return this.query(selector, params, function (selector, context) {
             var state;
-            if (typeof selector == 'string'
-                || typeof selector == 'number'
+            if (typeof selector === 'string'
+                || typeof selector === 'number'
                 || Array.isArray(selector)) {
                 // id 查找
                 state = idb.getItem(selector, context);
-            } else {
+            }
+            else {
                 // 索引查找
-                state = idb.find(selector, context)
+                state = idb.find(selector, context);
             }
             return state;
         });
@@ -125,14 +129,16 @@ define(function (require, exports) {
             if (typeof selector !== 'object') {
                 // id 查找
                 state = idb.removeItem(selector, context);
-            } else if (Array.isArray(selector)) {
+            }
+            else if (Array.isArray(selector)) {
                 // 如果是id数组；则批量处理id
                 selector.forEach(function (item) {
                     state = idb.removeItem(item, context);
                 });
-            } else {
+            }
+            else {
                 // 索引查找
-                state = idb.remove(selector, context)
+                state = idb.remove(selector, context);
             }
 
             // 只有请求数据回来后才算完成
@@ -157,7 +163,7 @@ define(function (require, exports) {
 
     StoreSchema.prototype.insert = function (data, params) {
         params = params || {};
-        
+
         // fixItem 用于检查每个物料项目的模式是否完成有效
         if (this.fixItem) {
             params.fixItem = this.fixItem.bind(this);
@@ -169,14 +175,14 @@ define(function (require, exports) {
 
         return this.query(data, params, handler);
     };
-    
+
     StoreSchema.prototype.count = function (selector, params) {
         var handler = function (selector, context) {
             var keySize = Object.keys(selector).length;
 
             // mix 表示混合两种搜索条件; 或者查找条件有多个
-            if (params && params.mix 
-                || (selector && keySize > 1 ) )  {
+            if (params && params.mix
+                || (selector && keySize > 1))  {
                 return idb.find(selector, context).then(
                     function (data) {
                         return data.count;
@@ -191,7 +197,7 @@ define(function (require, exports) {
                         function (data) {
                             return data.count;
                         }
-                    ); 
+                    );
             }
 
             // 全库统计数量

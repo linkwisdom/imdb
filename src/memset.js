@@ -3,13 +3,14 @@
  *
  * @author Liandong Liu (liuliandong01@baidu.com)
  */
- 
-define( function (require, exports) {
+
+define(function (require, exports) {
+    var logger = window.logger || window.console;
 
     /**
      * Memset 构造函数
      * @constructor
-     * @param {Array} set
+     * @param {Array} set 初始集合
      */
     function Memset(set) {
         var me = this;
@@ -28,10 +29,8 @@ define( function (require, exports) {
      * @return {Array} 符合条件的集合
      */
     Memset.prototype.find = function (selector, condition) {
-        var me = this;
         var conds = Memset.parseQuery(selector);
         var fields = condition.fields;
-        
         if (fields) {
             var list = [];
             this.set.forEach(function (item) {
@@ -81,15 +80,17 @@ define( function (require, exports) {
                 var k = item[key];
                 var ex = set2[map[k]];
                 Memset.mix(item, ex);
-                console.log(item, key);
+                logger.log(item, key);
             });
-        } else if (Array.isArray(set1) && Array.isArray(set2) ) {
+        }
+        else if (Array.isArray(set1) && Array.isArray(set2)) {
             // 如果两个都是数组，直接基于索引合并
             set1.forEach(function (item, idx) {
                 var ex = set2[idx];
                 Memset.mix(item, ex);
             });
-        } else if (typeof set2 === 'object') {
+        }
+        else if (typeof set2 === 'object') {
             var ex = set2;
             // 如果第二个参数是一个map对象
             set1.forEach(function (item, idx) {
@@ -98,7 +99,7 @@ define( function (require, exports) {
         }
         return set1;
     };
-    
+
     /**
      * 转化查询结果
      * @param  {Array} query 查询条件
@@ -123,7 +124,8 @@ define( function (require, exports) {
                             value: cond[key][cd]
                         });
                     });
-                } else {
+                }
+                else {
                     // Direct (==) matching
                     res.push({
                         field: key,
@@ -141,7 +143,7 @@ define( function (require, exports) {
      * @param  {string}  opt 比较符
      * @param  {*}  val1 值1
      * @param  {*}  val2 值2
-     * @return {Boolean}
+     * @return {boolean}
      */
     Memset.isMatchRule = function (opt, val1, val2) {
         switch (opt) {
@@ -154,20 +156,20 @@ define( function (require, exports) {
             case '$lte':
                 return val1 <= val2;
             case '$ne':
-                return val1 != val2;
+                return val1 !== val2;
             case '$eq':
-                return val1 == val2;
+                return val1 === val2;
             case '$neq':
-                return val1 != val2;
+                return val1 !== val2;
             case '$between':
                 return val1 > val2[0] && val1 < val2[1];
             case '$in':
                 return val2.indexOf(val1) > -1;
             case '$null':
-                return (val1 == null) == val2; 
+                return (val1 === null) === val2;
             case '$like':
                 return new RegExp(val2, 'i').test(val1);
-        };
+        }
     };
 
     /**
@@ -188,7 +190,7 @@ define( function (require, exports) {
      * 判断是否完全匹配
      * @param  {Object}  item  源对象
      * @param  {Object}  conds 匹配条件
-     * @return {Boolean}
+     * @return {boolean}
      */
     Memset.isMatch = function (item, conds) {
         return (conds || []).every(function (cond) {
@@ -200,8 +202,8 @@ define( function (require, exports) {
     /**
      * 是否匹配特定查询条件
      * @param  {Object}  item  源对象
-     * @param  {Object}  conds 匹配条件
-     * @return {Boolean}
+     * @param  {Object}  selector 匹配条件
+     * @return {boolean}
      */
     Memset.isMatchSelector = function (item, selector) {
         var conds = Memset.parseQuery(selector);

@@ -9,13 +9,6 @@ define(function (require, exports) {
 
     }
 
-    Schema.prototype.strict = false; 
-
-    // 创建数据库
-    Schema.prototype.create = function () {
-
-    };
-    
     // 验证单条数据
     Schema.prototype.validate = function () {
 

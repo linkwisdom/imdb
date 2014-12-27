@@ -4,9 +4,9 @@
  */
 
 define(function (require, exports, module) {
+    require('./chain-extension');
+    require('./StoreSchema');
     var imdb = require('./imdb');
     window.webSql = require('./webSql');
-    require('./chain-extension');
-    var StoreSchema = require('./StoreSchema');
     module.exports = imdb;
 });

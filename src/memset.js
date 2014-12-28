@@ -80,7 +80,6 @@ define(function (require, exports) {
                 var k = item[key];
                 var ex = set2[map[k]];
                 Memset.mix(item, ex);
-                logger.log(item, key);
             });
         }
         else if (Array.isArray(set1) && Array.isArray(set2)) {

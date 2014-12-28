@@ -122,6 +122,15 @@ define(function (require, exports) {
         });
     };
 
+    /**
+     * 清除数据库
+     */
+    StoreSchema.prototype.clear = function (stores) {
+        return this.query({}, {stores: stores}, function (option, context) {
+            return idb.clear(context);
+        });
+    };
+
     StoreSchema.prototype.remove = function (selector, params) {
         var handler = function (selector, context) {
             var state;

@@ -487,6 +487,23 @@ define(function (require, exports, module) {
         });
     };
     /**
+     * 清除sotore数据
+     * @param {Object} context 上下文
+     * @return {Chain}
+     */
+    exports.clear = function (context) {
+        stores = [].concat(context.stores || context.storeName);
+        var storeName = context.storeName;
+        var transaction = context.db.transaction(
+            stores, TransactionModes.READ_WRITE);
+        var request = null;
+        stores.forEach(function (storeName) {
+            var store = transaction.objectStore(storeName);
+            request = store.clear();
+        });
+        return exports.request(request, context);
+    };
+    /**
      * 查询满足条件的记录数量
      * - 只有索引条件能够满足
      * @param  {Object}   selector 选择条件

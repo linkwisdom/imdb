@@ -10,19 +10,6 @@ define(function (require, exports) {
     var memset = require('./memset');
 
     /**
-     * mix 简单实现
-     * @param {Object} target 目标
-     * @param {Object} modify 扩展
-     */
-    function mix(target, modify) {
-        for (var key in modify) {
-            if (modify.hasOwnProperty(key)) {
-                target[key] = modify[key];
-            }
-        }
-    }
-
-    /**
      * 打印数据，方便调试接口
      * @param {Object} option 配置参数
      * @return {Chain}
@@ -59,7 +46,7 @@ define(function (require, exports) {
                         chain.resolve(rst);
                     });
                 }
-                return chain.resolve(data);
+                chain.resolve(work);
             },
             fail
         );
@@ -77,6 +64,12 @@ define(function (require, exports) {
         });
     };
 
+    Chain.prototype.grep = function (fields) {
+        return this.map(function (item) {
+            return memset.cut(item, fields);
+        });
+    }
+
     /**
      * 更新数据
      * @param {Object} modify 替换值
@@ -84,7 +77,18 @@ define(function (require, exports) {
      */
     Chain.prototype.update = function (modify) {
         return this.map(function (item) {
-            return mix(item, modify);
+            return memset.mix(item, modify);
+        });
+    };
+
+    Chain.prototype.join = function (toJoin, key) {
+        return this.pipe(function (list) {
+            if (toJoin.then) {
+                return toJoin.then(function (data) {
+                    return memset.join(list, data, key);
+                });
+            }
+            return memset.join(list, toJoin, key);
         });
     };
 
@@ -94,13 +98,11 @@ define(function (require, exports) {
      */
     Chain.prototype.time = function () {
         var st = new Date();
-
         this.then(function (data) {
             var __time = new Date() - st;
             logger.info(__time);
             return __time;
         });
-
         return this;
     };
 

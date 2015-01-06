@@ -30,9 +30,13 @@ define(function (require, exports) {
 
     DataBaseSchema.prototype.init = function (option) {
         var database = this;
+        if (this.state) {
+            return this.state;
+        }
+
         if (option && option.clear && this.clear) {
-            return this.clear().then(function () {
-                return database.init();
+            return this.init().then(function () {
+                return database.clear();
             });
         }
 

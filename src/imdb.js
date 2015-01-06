@@ -28,6 +28,8 @@ define(function (require, exports, module) {
         REMOVE: 3
     };
 
+    exports.TAG_STATE = TAG_STATE;
+
     function updateTag(item, op) {
         // 已经删除的物料，就别再操作了
         if (item._tag === TAG_STATE.REMOVE) {

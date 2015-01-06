@@ -59,6 +59,41 @@ define(function (require, exports) {
         return target;
     };
 
+    Memset.resolveValue = function (source, item, key) {
+        var value = source[key];
+        var tp = typeof value;
+        if ('object' === typeof value) {
+            var keys = Object.keys(value);
+            var ov = value;
+            keys.forEach(function (opt) {
+                item[key] = Memset.assignValue(opt, item[key], ov[opt]);
+            });
+            value = item[key];
+        }
+        else if (tp === 'string' && value.charAt(0) === '@') {
+            var tkey = value.substr(1);
+            var tvalue = item[tkey];
+            if (tkey === '') {
+                tvalue = Memset.mix({}, item)
+            }
+            value = item[key] = tvalue;
+        }
+        return value;
+    };
+
+    /**
+     * @planid 
+     * $rand
+     */
+    Memset.update = function (target, source) {
+        for (var key in source) {
+            if (source.hasOwnProperty(key)) {
+                target[key] = Memset.resolveValue(source, target, key);
+            }
+        }
+        return target;
+    };
+
     /**
      * 集合属性合并
      * @param  {Array} set1 目标集合
@@ -168,6 +203,28 @@ define(function (require, exports) {
                 return (val1 === null) === val2;
             case '$like':
                 return new RegExp(val2, 'i').test(val1);
+        }
+    };
+
+    /**
+     * 设定更新值
+     * @param  {string}  opt 比较符
+     * @param  {*}  val1 值1
+     * @param  {*}  val2 值2
+     * @return {boolean}
+     */
+    Memset.assignValue = function (opt, val1, val2) {
+        switch (opt) {
+            case '$rand':
+                return Math.ceil(Math.random() * val2);
+            case '$inc':
+                return val1 + val2;
+            case '$multiply':
+                return val1 * val2;
+            case '$minus':
+                return val1 - val2;
+            default:
+                return val2;
         }
     };
 

@@ -8,24 +8,40 @@ define(function (require, exports) {
     var Schema = require('./Schema');
     var idb = require('./imdb');
 
-    function DataBaseSchema(option) {
-        Schema.call(this, option);
-        for (var key in option) {
-            if (option.hasOwnProperty(key)) {
-                this[key] = option[key];
+    function DataBaseSchema(dbConf, option) {
+        Schema.call(this, dbConf);
+        for (var key in dbConf) {
+            if (dbConf.hasOwnProperty(key)) {
+                this[key] = dbConf[key];
             }
         }
 
         // 改写createStore 方法实现自定义创建数据库
         idb.createStore = this.createStore.bind(this);
+        // 不提前创建
+        if (option && option.delay) {
+            return;
+        }
+        // 直接访问，检查版本是否更新
+        this.init();
+    }
+
+    DataBaseSchema.prototype = Object.create(Schema.prototype);
+
+    DataBaseSchema.prototype.init = function (option) {
+        var database = this;
+        if (option && option.clear && this.clear) {
+            return this.clear().then(function () {
+                return database.init();
+            });
+        }
 
         this.state = idb.open({
             name: this.dbName,
             version: this.version
         });
-    }
-
-    DataBaseSchema.prototype = Object.create(Schema.prototype);
+        return this.state;
+    };
 
     /**
      * 为数据库批量创建库
@@ -33,32 +49,39 @@ define(function (require, exports) {
      * @param {Object} context 上下文对象
      */
     DataBaseSchema.prototype.createStore = function (context) {
-        var stores = context.stores || Object.create(this.stores);
-        stores.forEach(function (store) {
-            var indecies = store.indecies || [];
+        var schema = this.schema;
+        var stores = Object.keys(schema);
+        stores.forEach(function (storeName) {
+            var store = schema[storeName];
+            var indecies = Object.keys(store.indecies || {});
             var objectStore = {};
 
-            if (!context.db.objectStoreNames.contains(store.name)) {
-                objectStore = context.db.createObjectStore(store.name, {
-                    keyPath: store.key,
-                    autoIncrement: store.autoIncrement || false
+            if (!context.db.objectStoreNames.contains(storeName)) {
+                var primaryKey = store.primaryKey;
+                objectStore = context.db.createObjectStore(storeName, {
+                    keyPath: primaryKey.name,
+                    autoIncrement: primaryKey.autoIncrement || false
                 });
             }
             else {
-                objectStore = context.transaction.objectStore(store.name);
+                objectStore = context.transaction.objectStore(storeName);
             }
 
             // 创建索引
-            indecies.forEach(function (indexer) {
+            indecies.forEach(function (index) {
+                var indexer = store.indecies[index];
                 if (typeof indexer === 'string') {
                     if (!objectStore.indexNames.contains(indexer)) {
                         objectStore.createIndex(indexer, indexer, {unique: false});
                     }
                 }
-                else if (typeof indexer === 'object') {
+                else if (
+                    typeof indexer === 'object'
+                    && !objectStore.indexNames.contains(indexer.name)
+                ) {
                     // 支持组合约束条件
                     objectStore.createIndex(
-                        indexer.name, indexer.keys,
+                        indexer.name, indexer.keys || indexer.name,
                         {unique: indexer.unique || false}
                     );
                 }

@@ -5,6 +5,7 @@
  */
 
 define(function (require, exports) {
+    var Chain = require('./Chain');
     var Schema = require('./Schema');
     var idb = require('./imdb');
     var View = require('./View');
@@ -25,10 +26,66 @@ define(function (require, exports) {
             }
         }
 
+        // 绑定模式约束
+        if (this.schema) {
+            bindSchemaConstrains(this);
+        }
+
         Schema.call(this, option);
     }
 
     StoreSchema.prototype = Object.create(Schema.prototype);
+
+//     function getPatch(patch) {
+//         if (typeof patch === 'object') {
+//             if (patch.$rand) {
+//                 return Math.ceil(Math.random() * patch.$rand);
+//             }
+//         }
+//         return patch;
+//     }
+
+//     function bindFixer(defaultValue) {
+//         return function (item) {
+//             for (var key in defaultValue) {
+//                 if (!item.hasOwnProperty(key) || item[key] === null) {
+//                     item[key] = getPatch(defaultValue[key]);
+//                 }
+//             }
+//         }
+//     }
+
+    function getValidator(validator) {
+        return function (list) {
+            if (!Array.isArray(list)) {
+                list = [list];
+            }
+            var error = {};
+            var flag = true;
+            list.forEach(function (item, index) {
+                var info = validator(item);
+                if (info !== true) {
+                    error[index] = error;
+                    flag = false;
+                }
+            });
+            return flag || error;
+        };
+    }
+
+    function bindSchemaConstrains(store) {
+        var schema = store.schema;
+
+        // 默认字段补全
+//         if (schema.defaultValue) {
+//             store.fixItem = bindFixer(schema.defaultValue);
+//         }
+
+        // 验证器绑定
+        if (schema.validator) {
+            store.validate = getValidator(schema.validator);
+        }
+    }
 
     function getConnection(storeName, option) {
         var dbName = option.dbName;
@@ -122,6 +179,12 @@ define(function (require, exports) {
         });
     };
 
+    StoreSchema.prototype.contains = function (selector, params) {
+        return this.query(selector, params, function (selector, context) {
+            return idb.contains(selector, context);
+        });
+    };
+    
     /**
      * 清除数据库
      */
@@ -173,8 +236,16 @@ define(function (require, exports) {
     StoreSchema.prototype.insert = function (data, params) {
         params = params || {};
 
+        // 插入前校验数据是否合法
+        if (this.validate) {
+            var info = this.validate(data);
+            if (info !== true) {
+                return Chain.reject(info);
+            }
+        }
+
         // fixItem 用于检查每个物料项目的模式是否完成有效
-        if (this.fixItem) {
+        if (this.fixItem && !params.upsert) {
             params.fixItem = this.fixItem.bind(this);
         }
 

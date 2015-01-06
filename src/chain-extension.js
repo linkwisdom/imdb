@@ -40,7 +40,10 @@ define(function (require, exports) {
         var chain = new Chain();
         this.then(
             function (data) {
-                var work = fullfill(data);
+                var work = fullfill;
+                if (typeof fullfill === 'function') {
+                    work = fullfill(data);
+                }
                 if (work.then) {
                     return work.then(function (rst) {
                         chain.resolve(rst);
@@ -77,10 +80,16 @@ define(function (require, exports) {
      */
     Chain.prototype.update = function (modify) {
         return this.map(function (item) {
-            return memset.mix(item, modify);
+            return memset.update(item, modify);
         });
     };
 
+    /**
+     * 合并列表
+     * @param {Array|Object} toJoin 合并对象
+     * @param {string=} 合并key
+     * @return {Chain}
+     */
     Chain.prototype.join = function (toJoin, key) {
         return this.pipe(function (list) {
             if (toJoin.then) {
@@ -110,7 +119,6 @@ define(function (require, exports) {
         if (!Array.isArray(data)) {
             return data;
         }
-
         return data.map(mapFunc);
     };
 

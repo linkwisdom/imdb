@@ -21,11 +21,54 @@ define(function (require, exports, module) {
      * 修改状态
      */
     var TAG_STATE = {
-        REMOVE: -1,
+        FORCE_REMOVE: -1,
         SILENT: 0,
         UPDATE: 1,
-        ADD: 2
+        ADD: 2,
+        REMOVE: 3
     };
+
+    function updateTag(item, op) {
+        // 已经删除的物料，就别再操作了
+        if (item._tag === TAG_STATE.REMOVE) {
+            return TAG_STATE.SILENT;
+        }
+
+        // 如果是新增操作，尽快新增
+        if (op === TAG_STATE.ADD) {
+            item._tag = TAG_STATE.ADD;
+            return TAG_STATE.ADD;
+        }
+
+        // 如果是新增物料
+        if (item._tag === TAG_STATE.ADD) {
+            // 如果要删除新增物料
+            if (op === TAG_STATE.REMOVE) {
+                // 强制删除
+                return TAG_STATE.FORCE_REMOVE;
+            }
+            // 尽快更新
+            return op;
+        }
+
+        // 如果是删除操作；默认软删除
+        if (op === TAG_STATE.REMOVE) {
+            item._tag = TAG_STATE.REMOVE;
+            return TAG_STATE.REMOVE;
+        }
+
+        // 如果是更新操作
+        if (op === TAG_STATE.UPDATE) {
+            // 如果value第一次更新；则保留历史数据
+            if (item._tag !== TAG_STATE.UPDATE) {
+                item._oldValue = JSON.stringify(item);
+            }
+            item._tag = TAG_STATE.UPDATE;
+            return TAG_STATE.UPDATE;
+        }
+        return item._tag;
+    }
+
     /**
      * 获取索引查找条件
      * @param {Object} condition 查询条件
@@ -34,10 +77,6 @@ define(function (require, exports, module) {
     function getRange(condition) {
         var tp = typeof condition;
         if (tp !== 'object' || Array.isArray(condition)) {
-            if (condition === '$index') {
-                // 基于改字段索引查找, 暂定定义为0
-                return IDBKeyRange.lowerBound(0);
-            }
             return IDBKeyRange.only(condition);
         }
         if (condition.$gt !== undefined) {
@@ -76,7 +115,7 @@ define(function (require, exports, module) {
         if (!request) {
             setTimeout(function () {
                 deferred.reject({message: 'request fail'});
-            }, 30);
+            }, 300);
             return deferred;
         }
         request.onsuccess = function (e) {
@@ -251,7 +290,10 @@ define(function (require, exports, module) {
                     // 查询条件改为find代理
                     if (cursor && cursor.value) {
                         var value = cursor.value;
-                        var oldValue = Object.create(value);
+                        // 如果更新条件不符合
+                        if (updateTag(value, TAG_STATE.UPDATE) !== TAG_STATE.UPDATE) {
+                            return;
+                        }
                         if (data) {
                             for (var key in data) {
                                 if (data.hasOwnProperty(key)) {
@@ -273,10 +315,6 @@ define(function (require, exports, module) {
                             if (value) {
                                 cursor.value = assigned;
                             }
-                        }
-                        // 只存储最原始的数值
-                        if (!value.__oldValue) {
-                            value.__oldValue = oldValue;
                         }
                         result.push(value);
                         cursor.update(cursor.value);
@@ -334,14 +372,16 @@ define(function (require, exports, module) {
                 selector, context,
                 function (cursor) {
                     if (cursor && cursor.value) {
-                        result.push(cursor.value);
+                        var value = cursor.value;
+                        result.push(value);
                         // 软删除
-                        if (context.force === false) {
-                            cursor.value.__tag = TAG_STATE.REMOVE;
+                        // 对本地新增加的物料，无条件硬删除
+                        if (context.force === false && value._tag === TAG_STATE.ADD) {
+                            cursor.value._tag = TAG_STATE.REMOVE;
                             cursor.update(cursor.value);
                         }
                         else {
-                        // 硬删除
+                            // 硬删除
                             cursor.delete();
                         }
                     }
@@ -352,6 +392,7 @@ define(function (require, exports, module) {
             );
             return deferred;
         }
+        // 如果是数字、数组、字符串；采用id删除策略
         return exports.removeItem(selector, context);
     };
 
@@ -446,8 +487,10 @@ define(function (require, exports, module) {
         var putting = {};
         for (var i = 0, len = sets.length; i < len; i++) {
              // 缄默模式插入：数据库同步中开启
-            if (context.silent) {
-                sets[i].__tag = TAG_STATE.ADD;
+             // 逻辑修改为主键如果为负数，则需要表示表示本地新增加
+             // 业务端也可以强制添加tag
+            if (sets[i] && sets[i][store.keyPath] < 0) {
+                sets[i]._tag = TAG_STATE.ADD;
             }
             // 如果定义了数据库模式，通过模式检查或fix相关数据
             if (context.fixItem && context.fixItem(sets[i])) {
@@ -492,7 +535,10 @@ define(function (require, exports, module) {
      * @return {Chain}
      */
     exports.clear = function (context) {
-        stores = [].concat(context.stores || context.storeName);
+        var stores = [].concat(context.stores || context.storeName);
+        if (context.stores === '*') {
+            stores = Array.prototype.slice.call(context.db.objectStoreNames);
+        }
         var storeName = context.storeName;
         var transaction = context.db.transaction(
             stores, TransactionModes.READ_WRITE);
@@ -541,6 +587,68 @@ define(function (require, exports, module) {
         }
         return deferred;
     };
+
+    exports.contains = function (selectors, context, callback) {
+        selectors = [].concat(selectors);
+        var chain = new Chain();
+        var storeName = context.storeName;
+        var transactionMode = TransactionModes.READ_ONLY;
+        var transaction = context.db.transaction(
+            [storeName], transactionMode);
+        var store = transaction.objectStore(storeName);
+        var conditions = [];
+
+        selectors.forEach(function (selector, index) {
+            var key = Object.keys(selector)[0];
+            if (store.keyPath === key) {
+                conditions.push({
+                    key: key,
+                    value: selector[key]
+                });
+            }
+            else if (store.indexNames.contains(key)) {
+                conditions.push({
+                    key: key,
+                    selector: selector,
+                    filter: getRange(selector[key])
+                });
+            }
+        });
+        var result = {};
+        var flags = conditions.length;
+        conditions.forEach(function (cond) {
+            var request = {};
+            if (cond.value) {
+                request = store.get(cond.value);
+            }
+            else {
+                var index = store.index(cond.key);
+                request = index.openCursor(cond.filter);
+            }
+
+            request.onsuccess = function (e) {
+                var cursor = e.target.result;
+                if (cursor && cursor.value) {
+                    if (memset.isMatchSelector(cursor.value, cond.selector)) {
+                        flags--;
+                        result[cond.key] = cursor.value[store.keyPath];
+                    }
+                    else {
+                        cursor.continue();
+                    }
+                }
+                else if (!cursor) {
+                    // 没有符合条件的情况了
+                    flags--;
+                }
+
+                if (flags === 0) {
+                    chain.resolve(result);
+                }
+            };
+        });
+        return chain;
+    };
     /**
      * 查询元素
      * - 结合索引查找和内存查找机制
@@ -576,10 +684,11 @@ define(function (require, exports, module) {
                 keys.unshift();
             }
         }
-        if (!filter && store.indexNames.contains[store.keyPath]) {
+        // 采用主键查找
+        if (!filter && typeof selector[store.keyPath] == 'number') {
             // 如果没有指定查询条件，默认按主键查询
-            index = store.index(store.keyPath);
-            request = index.openCursor(null, context.direction || 'next');
+            //index = store.index(store.keyPath);
+            request = store.get(selector[store.keyPath]);
         }
         else if (!request) {
             request = store.openCursor(null, context.direction || 'next');
@@ -606,22 +715,29 @@ define(function (require, exports, module) {
                     return;
                 }
             }
-            if (cursor && cursor.value && result.length < count) {
-                var value = cursor.value;
+            if (cursor && result.length < count) {
+                var value = cursor.value || cursor;
                 if (needFilter) {
                     if (memset.isMatchSelector(value, selector)) {
-                        if (context.fields) {
-                            value = memset.cut(value, context.fields);
-                        }
                         callback && callback(cursor);
                         result.push(value);
                     }
                 }
                 else {
                     callback && callback(cursor);
-                    result.push(value);
+                    // 只需要保留一个字段
+                    if (context.filter) {
+                        var retured = context.filter(value);
+                        if (retured) {
+                            result.push(retured);
+                        }
+                    } else {
+                        result.push(value);
+                    }
+                    
                 }
-                if (value) {
+
+                if (value && cursor.continue) {
                     cursor.continue();
                 }
             }

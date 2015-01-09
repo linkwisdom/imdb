@@ -45,9 +45,12 @@ define(function (require, exports) {
                     work = fullfill(data);
                 }
                 if (work.then) {
-                    return work.then(function (rst) {
-                        chain.resolve(rst);
-                    });
+                    return work.then(
+                        function (rst) {
+                            chain.resolve(rst);
+                        },
+                        fail
+                    );
                 }
                 chain.resolve(work);
             },

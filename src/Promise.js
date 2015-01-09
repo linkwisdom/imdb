@@ -25,5 +25,10 @@ define(function (require, exports) {
         return this.promise.then(fullfill, fail);
     };
 
-    return Chain;
+    // 为了方便查看结果，扩展该方法
+    Promise.prototype.display = function () {
+        this.then(function (data) {
+            console.table(data);
+        });
+    };
 });

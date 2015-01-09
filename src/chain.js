@@ -8,13 +8,6 @@
 define(function (require, exports) {
     var Promise = window.Promise;
 
-    // 为了方便查看结果，扩展该方法
-    Promise.prototype.display = function () {
-        this.then(function (data) {
-            console.table(data);
-        });
-    };
-
     function Chain() {
         var chain = this;
         var promise = new Promise(function (resolve, reject) {
@@ -30,6 +23,10 @@ define(function (require, exports) {
 
     Chain.prototype.done = function (fullfill, fail) {
         return this.promise.then(fullfill, fail);
+    };
+
+    Chain.prototype.ensure = function (fullfill) {
+        return this.promise.then(fullfill, fullfill);
     };
 
     Chain.resolve = function (data) {

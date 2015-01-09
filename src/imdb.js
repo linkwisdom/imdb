@@ -62,7 +62,7 @@ define(function (require, exports, module) {
         // 如果是更新操作
         if (op === TAG_STATE.UPDATE) {
             // 如果value第一次更新；则保留历史数据
-            if (item._tag !== TAG_STATE.UPDATE) {
+            if (item._tag === undefined && item._oldValue === undefined) {
                 item._oldValue = JSON.stringify(item);
             }
             item._tag = TAG_STATE.UPDATE;
@@ -378,7 +378,7 @@ define(function (require, exports, module) {
                         result.push(value);
                         // 软删除
                         // 对本地新增加的物料，无条件硬删除
-                        if (context.force === false && value._tag === TAG_STATE.ADD) {
+                        if (context.force === false && value._tag !== TAG_STATE.ADD) {
                             cursor.value._tag = TAG_STATE.REMOVE;
                             cursor.update(cursor.value);
                         }
@@ -709,7 +709,7 @@ define(function (require, exports, module) {
         // 游标触发下次请求
         request.onsuccess = function (e) {
             var cursor = e.target.result;
-            context.endIndex++; // 记录本次查找条件下的结束位置
+            // 如果指定了跳跃数，从跳跃数重新开始查询
             if (advance && cursor) {
                 advance = false;
                 if (startIndex > 0) {
@@ -718,6 +718,7 @@ define(function (require, exports, module) {
                 }
             }
             if (cursor && result.length < count) {
+                context.endIndex++; // 记录本次查找条件下的结束位置
                 var value = cursor.value || cursor;
                 if (needFilter) {
                     if (memset.isMatchSelector(value, selector)) {
@@ -749,6 +750,7 @@ define(function (require, exports, module) {
                     startIndex: startIndex,
                     endIndex: context.endIndex
                 };
+                // 注意默认强制注入改信息；为了方便之后继续查询
                 result.info = info;
                 deferred.resolve(result);
                  // 释放连接

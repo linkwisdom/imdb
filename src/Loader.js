@@ -1,3 +1,8 @@
+/**
+ * @file debug文件
+ * @author Liandong Liu (liuliandong01@baidu.com)
+ */
+
 define(function (require, exports) {
     var Chain = require('./Chain');
     var Pager = require('./Pager');

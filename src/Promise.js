@@ -28,7 +28,7 @@ define(function (require, exports) {
     // 为了方便查看结果，扩展该方法
     Promise.prototype.display = function () {
         this.then(function (data) {
-            console.table(data);
+            // console.table(data);
         });
     };
 });

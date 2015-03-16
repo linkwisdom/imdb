@@ -14,6 +14,12 @@ define(function (require, exports) {
             chain.resolve = resolve.bind(chain);
             chain.reject = reject.bind(chain);
         });
+        // 如果业务层有自定义的异常处理函数
+        if (typeof chain.handleError === 'function') {
+            promise.catch(function (ex) {
+                chain.handleError(ex);
+            });
+        }
         this.promise = promise;
     }
 
@@ -29,6 +35,10 @@ define(function (require, exports) {
         return this.promise.then(fullfill, fullfill);
     };
 
+    Chain.prototype.catch = function (callback) {
+        return this.promise.catch(callback);
+    };
+
     Chain.resolve = function (data) {
         var chain = new Chain();
         chain.resolve(data);
@@ -36,9 +46,7 @@ define(function (require, exports) {
     };
 
     Chain.reject = function (data) {
-        var chain = new Chain();
-        chain.reject(data);
-        return chain;
+        return Promise.reject(data);
     };
 
     return Chain;

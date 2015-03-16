@@ -30,6 +30,32 @@ define(function (require, exports, module) {
 
     exports.TAG_STATE = TAG_STATE;
 
+    /**
+     * 复制对象(浅复制)
+     * @param {Object} source 要复制的对象
+     * @param {number} maxDeep 深度数量
+     * @return {Object} 复制完的对象
+     */
+    function objectClone(source, maxDeep) {
+        var result = {};
+        for (var key in source) {
+            if (source.hasOwnProperty(key)) {
+                var item = source[key];
+                if (Array.isArray(item)) {
+                    // 数组内元素不再深度
+                    result[key] = [].concat(item);
+                }
+                else if (maxDeep && (typeof item === 'object')) {
+                    result[key] = objectClone(item, maxDeep - 1);
+                }
+                else {
+                    result[key] = item;
+                }
+            }
+        }
+        return result;
+    }
+
     function updateTag(item, op) {
         // 已经删除的物料，就别再操作了
         if (item._tag === TAG_STATE.REMOVE) {
@@ -47,7 +73,7 @@ define(function (require, exports, module) {
             // 如果要删除新增物料
             if (op === TAG_STATE.REMOVE) {
                 // 强制删除
-                return TAG_STATE.FORCE_REMOVE;
+                return item._tag = TAG_STATE.FORCE_REMOVE;
             }
             // 尽快更新
             return op;
@@ -62,7 +88,7 @@ define(function (require, exports, module) {
         // 如果是更新操作
         if (op === TAG_STATE.UPDATE) {
             // 如果value第一次更新；则保留历史数据
-            if (item._tag === undefined && item._oldValue === undefined) {
+            if (!item._tag && !item._oldValue) {
                 item._oldValue = JSON.stringify(item);
             }
             item._tag = TAG_STATE.UPDATE;
@@ -78,6 +104,12 @@ define(function (require, exports, module) {
      */
     function getRange(condition) {
         var tp = typeof condition;
+        // 直接基于这个键索引或排序即可
+        if (tp === 'undefined') {
+            // 目前业务上采用的是第一个值为{}来标识排序字段.没有使用@的方式.
+            // || condition === '@index' || condition === '@sort') {
+            return null;
+        }
         if (tp !== 'object' || Array.isArray(condition)) {
             return IDBKeyRange.only(condition);
         }
@@ -100,7 +132,7 @@ define(function (require, exports, module) {
             var range = condition.$between;
             return IDBKeyRange.bound(range[0], range[1]);
         }
-        return false;
+        return null;
     }
     /**
      * 包装请求对象为Deferred对象
@@ -117,7 +149,7 @@ define(function (require, exports, module) {
         if (!request) {
             setTimeout(function () {
                 deferred.reject({message: 'request fail'});
-            }, 300);
+            }, 10);
             return deferred;
         }
         request.onsuccess = function (e) {
@@ -147,6 +179,11 @@ define(function (require, exports, module) {
         };
         return deferred;
     };
+
+    /**
+     * 简单获取链接实例
+     * - todo 删除或者直接pipe
+     */
     exports.pipe = function (chain) {
         return new Chain();
     };
@@ -193,6 +230,9 @@ define(function (require, exports, module) {
         });
     };
     exports.deleteDatabase = function (dbName, context) {
+        var databases = localStorage.getItem('idb-databases') || '';
+        databases = databases.replace(dbName, '').replace(';;', ';');
+        localStorage.setItem('idb-databases', databases);
         var request = indexedDB.deleteDatabase(dbName);
         return exports.request(request, context);
     };
@@ -257,7 +297,6 @@ define(function (require, exports, module) {
         }
         return chain;
     };
-
     /**
      * 更新记录
      * - 通过查询条件更新元素
@@ -271,81 +310,105 @@ define(function (require, exports, module) {
     exports.update = function (selector, context, option) {
         var deferred = new Chain();
         // 支持mongodb $set, $inc指令已经自定义的复制函数$let
-        var data = context.$set || context.value;
+        var updator = context.$set || context.value;
         var inc = context.$inc;
         var assign = context.$let;
+        var validate = context.$validate; // 校验函数
         // upsert 表示如果数据不存在则插入数据（data）
         if (option && option.upsert) {
             context.upsert = true;
         }
         // 需要有目标数据
-        var upsert = data && context.upsert || false;
-        var count = 0;
+        var upsert = updator && context.upsert || false;
         // 打开find的write模式
         context.writeMode = true;
+
         if (typeof selector === 'object' && !Array.isArray(selector)) {
              // 如果是Object类型，先查询后删除
-            var result = [];
             exports.find(
-                selector, context,
-                function (cursor) {
-                    // 查询条件改为find代理
-                    if (cursor && cursor.value) {
-                        var value = cursor.value;
-                        // 如果更新条件不符合
-                        if (updateTag(value, TAG_STATE.UPDATE) !== TAG_STATE.UPDATE) {
-                            return;
-                        }
-                        if (data) {
-                            for (var key in data) {
-                                if (data.hasOwnProperty(key)) {
-                                    cursor.value[key] = data[key];
+                selector, context).then(
+                function (result) {
+                    var putValues = function () {
+                        var putDeferred = new Chain();
+                        var transaction = context.db.transaction([context.storeName], TransactionModes.READ_WRITE);
+                        var store = transaction.objectStore(context.storeName);
+                        var putCount = 0;
+                        var okCount = 0;
+                        var modValue = function (value) {
+                            if (updator) {
+                                value = memset.update(value, updator);
+                            }
+                            if (inc) {
+                                for (var k in inc) {
+                                    if (inc.hasOwnProperty(k)) {
+                                        // 对cursor的修改会触发重建游标；
+                                        value[k] += inc[k];
+                                    }
                                 }
                             }
-                        }
-                        if (inc) {
-                            for (var k in inc) {
-                                if (inc.hasOwnProperty(k)) {
-                                    cursor.value[k] += inc[k];
+                            if (assign) {
+                                var assigned = assign(value);
+                                // 如果有返回值，则需要重写
+                                // 建议函数内对象直接修改
+                                if (assigned) {
+                                    value = assigned;
                                 }
                             }
-                        }
-                        if (assign) {
-                            var assigned = assign(cursor.value);
-                            // 如果有返回值，则需要重写
-                            // 建议函数内对象直接修改
-                            if (value) {
-                                cursor.value = assigned;
+                            // 校验函数
+                            if (validate && value) {
+                                value._oldError = value._error;
+                                // todo[haihan] 避免全字段验证
+                                value._error = validate(value);
                             }
-                        }
-                        result.push(value);
-                        cursor.update(cursor.value);
-                        count++;
-                        if (context.count === undefined
-                            || count < context.count) {
-                            // 代理查找不需要再迭代了
-                            // cursor.continue();
-                            return;
-                        }
-                    }
-                    if (upsert && result.length === 0) {
-                        // 自动填充一些字段
-                        var newItem = context.patch;
-                        for (var kay in data) {
-                            if (data.hasOwnProperty(kay)) {
-                                newItem[kay] = data[kay];
+                            return value;
+                        };
+                        var putFinished = function (e) {
+                            if (++okCount === putCount) {
+                                putDeferred.resolve();
                             }
-                        }
-                        // 插入新数据
-                        exports.insert(newItem, context).then(
-                            function () {
-                                deferred.resolve([newItem]);
+                        };
+                        var putValue = function (value) {
+                            // todo[haihan] 这里需要讨论updateTag是否要判断_tag, 而不是业务方
+                            // 事实上,业务方全部更新的时候,确实已经设置了_tag
+                            // 如果更新条件不符合 (除非使用了强制更新的方式)
+                            if (
+                                context.force !== true &&
+                                updateTag(value, TAG_STATE.UPDATE) !== TAG_STATE.UPDATE) {
+                                return;
                             }
-                        );
-                    }
-                    else {
-                        deferred.resolve(result);
-                    }
+                            var newValue = modValue(value);
+                            putCount++;
+                            var put = store.put(newValue);
+                            put.onsuccess = putFinished;
+                            put.onerror = putFinished;
+                        };
+                        result.forEach(putValue);
+                        if (putCount === 0) {
+                            return Promise.resolve();
+                        }
+                        return putDeferred;
+                    };
+                    putValues().then(function () {
+                        // todo (liandong) 这部分还有bug
+                        if (upsert && result.length === 0 && context.patch) {
+                            // 自动填充一些字段
+                            var newItem = context.patch;
+                            // for (var kay in data) {
+                            //     if (data.hasOwnProperty(kay)) {
+                            //         newItem[kay] = data[kay];
+                            //     }
+                            // }
+                            // 插入新数据
+                            exports.insert(newItem, context).then(
+                                function () {
+                                    deferred.resolve([newItem]);
+                                }
+                            );
+                        }
+                        else {
+                            deferred.resolve(result);
+                        }
+                    });
                 }
             );
             return deferred;
@@ -368,30 +431,56 @@ define(function (require, exports, module) {
             selector = [selector];
         }
         else if (!Array.isArray(selector)) {
-             // 如果是Object类型，先查询后删除
-            var result = [];
-            exports.find(
-                selector, context,
-                function (cursor) {
-                    if (cursor && cursor.value) {
-                        var value = cursor.value;
-                        result.push(value);
-                        // 软删除
-                        // 对本地新增加的物料，无条件硬删除
-                        if (context.force === false && value._tag !== TAG_STATE.ADD) {
-                            cursor.value._tag = TAG_STATE.REMOVE;
-                            cursor.update(cursor.value);
-                        }
-                        else {
-                            // 硬删除
-                            cursor.delete();
-                        }
+            // 如果是Object类型，先查询后删除
+            exports.find(selector, context).then(function (list) {
+                
+                var okCount = 0;
+                // 过滤无效数据
+                var data = list.filter(function (item) {
+                    return !!item;
+                });
+                var removeCount = data.length;
+
+                if (removeCount === 0) {
+                    deferred.resolve(list);
+                }
+
+                var transaction = context.db.transaction([context.storeName], TransactionModes.READ_WRITE);
+                var store = transaction.objectStore(context.storeName);
+
+                var removeFinished = function () {
+                    if (++okCount === removeCount) {
+                        deferred.resolve(list);
+                    }
+                };
+
+                var removeValue = function (value) {
+                    var remove = null;
+                    // 【注意】指定软删除、或者是本地新增加物料都是软删
+                    // 对本地新增加的物料，无条件硬删除
+                    if (context.force !== true && value._tag !== TAG_STATE.ADD) {
+                        value._tag = TAG_STATE.REMOVE;
+                        remove = store.put(value);
                     }
                     else {
-                        deferred.resolve(result);
+                        // 删除返回列表要求知道删除是软删除或硬删除
+                        value._tag = TAG_STATE.FORCE_REMOVE;
+                        try {
+                            // 硬删除: 业务层无法保证主键存在
+                            remove = store.delete(value[store.keyPath]);
+                        }
+                        catch (ex) {
+                            removeFinished();
+                        }
                     }
-                }
-            );
+                    if (remove) {
+                        remove.onsuccess = removeFinished;
+                        remove.onerror = removeFinished;
+                    }
+                };
+                data.forEach(removeValue);
+            });
+
             return deferred;
         }
         // 如果是数字、数组、字符串；采用id删除策略
@@ -447,7 +536,6 @@ define(function (require, exports, module) {
             storeName, TransactionModes.READ_WRITE);
         var store = transaction.objectStore(storeName);
         if (!context.loopCount) {
-            logger.time('insert');
             context.loopCount = 0;
             // 支持单条数据，同时也时为了数据拷贝，不影响源数据
             sets = [].concat(sets);
@@ -474,15 +562,16 @@ define(function (require, exports, module) {
                 }, 30);
             }
             else {
-                logger.timeEnd('insert');
-                logger.log('loopCount %s', context.loopCount);
-                // 实时关闭数据库
-                context.db.close();
-                deferred.resolve(sets);
+                // 只有超过多片才会保留sourceList
+                deferred.resolve(context.sourceList || sets);
             }
         };
         // 更大量数据操作的时候可能block-ui, 所以要分片插入方式
         if (sets.length > SPLICE_SIZE) {
+            if (!context.sourceList) {
+                context.sourceList = [].concat(sets);
+            }
+
             // 剩余数据到下次执行
             restList = sets.splice(SPLICE_SIZE);
         }
@@ -494,8 +583,12 @@ define(function (require, exports, module) {
             if (sets[i] && sets[i][store.keyPath] < 0) {
                 sets[i]._tag = TAG_STATE.ADD;
             }
+            // 挂载校验器
+            if (context.$validate) {
+                sets[i]._error = context.$validate(sets[i]);
+            }
             // 如果定义了数据库模式，通过模式检查或fix相关数据
-            if (context.fixItem && context.fixItem(sets[i])) {
+            if (context.fixItem && context.fixItem(sets[i], i)) {
                 putting = store.put(sets[i]); // put means upsert
             }
             else if (context.upsert) {
@@ -541,7 +634,7 @@ define(function (require, exports, module) {
         if (context.stores === '*') {
             stores = Array.prototype.slice.call(context.db.objectStoreNames);
         }
-        var storeName = context.storeName;
+        // var storeName = context.storeName;
         var transaction = context.db.transaction(
             stores, TransactionModes.READ_WRITE);
         var request = null;
@@ -661,7 +754,9 @@ define(function (require, exports, module) {
      * @return {Chain}
      */
     exports.find = function (selector, context, callback) {
-        var deferred = new Chain();
+        // 后面对selector的delete等操作，有一点问题，所以这里clone下
+        selector = objectClone(selector, 3);
+        var chain = new Chain();
         var storeName = context.storeName;
         // 更新和删除等操作需要打开读写模式
         var transactionMode = context.writeMode
@@ -674,89 +769,169 @@ define(function (require, exports, module) {
         var request = null;
         var filter = null;
         var index = null;
+
+        // 筛选条件：如果第一个建是索引键
+        // 现在如果第一个键是ne, 不需要业务端设置第一个字段为主键了.
         if (keys.length > 0 && store.indexNames.contains(keys[0])) {
             var key = keys[0];
-            filter = getRange(selector[key]);
-            // 删除第一个条件
-            if (filter) {
+            var condition = selector[key];
+            // 除了排序,还进行了条件判断
+            filter = getRange(condition);
+            // 特殊处理. 不能对_tag或者_error等使用空filter(例如ne)的index, 因为这种字段可能为null
+            // 会导致结果中不包含有null值的行. 以后需要完善默认值机制,来避免此特殊逻辑
+            if (filter || key.charAt(0) !== '_') {
                 index = store.index(key);
-                // 请求数据
+                // 请求数据. filter可能是NULL,这是为了排序
                 request = index.openCursor(filter, context.direction || 'next');
-                delete selector[keys[0]];
-                keys.unshift();
+                // 如果filter已经处理了,或者仅仅是为了排序.就不需要游标后在内存中再处理了. 直接清除掉
+                var isOnlySort = (condition == null)
+                    || (typeof condition === 'object' && Object.keys(condition).length === 0);
+                if (filter || isOnlySort) {
+                    delete selector[key];
+                    keys.unshift();
+                }
             }
         }
+
+        var mainKey = selector[store.keyPath];
+
         // 采用主键查找
-        if (!filter && typeof selector[store.keyPath] == 'number') {
+        if (!filter && typeof mainKey === 'number') {
             // 如果没有指定查询条件，默认按主键查询
-            //index = store.index(store.keyPath);
+            // index = store.index(store.keyPath);
             request = store.get(selector[store.keyPath]);
         }
+        else if (!filter && (selector.$in || (mainKey && mainKey.$in))) {
+            var idSet = selector.$in || (mainKey && mainKey.$in);
+            if (selector.$in) {
+                delete selector.$in;
+            }
+            else {
+                delete mainKey.$in;
+            }
+            // 如果是基于主键集合查找
+            request = new IteRequest(idSet, store);
+
+        }
         else if (!request) {
+            // 如果没有指定查找条件，按主键遍历游标
             request = store.openCursor(null, context.direction || 'next');
         }
+
         // 自定义游标处理, 且如果是只读取模式
         if (callback && !context.writeMode) {
             request.onsuccess = callback;
             return request;
         }
-        var result = [];
-        var count = context.count || Number.MAX_VALUE;
-        var needFilter = keys.length > 0;
-        var startIndex = context.startIndex || context.skip || 0;
-        var advance = true;
-        context.endIndex = startIndex; // 初始化为开始位置
-        // 游标触发下次请求
-        request.onsuccess = function (e) {
-            var cursor = e.target.result;
-            // 如果指定了跳跃数，从跳跃数重新开始查询
-            if (advance && cursor) {
-                advance = false;
-                if (startIndex > 0) {
-                    cursor.advance(startIndex);
-                    return;
-                }
-            }
-            if (cursor && result.length < count) {
-                context.endIndex++; // 记录本次查找条件下的结束位置
-                var value = cursor.value || cursor;
-                if (needFilter) {
-                    if (memset.isMatchSelector(value, selector)) {
-                        callback && callback(cursor);
-                        result.push(value);
-                    }
-                }
-                else {
-                    callback && callback(cursor);
-                    // 只需要保留一个字段
-                    if (context.filter) {
-                        var retured = context.filter(value);
-                        if (retured) {
-                            result.push(retured);
-                        }
-                    } else {
-                        result.push(value);
-                    }
-                    
-                }
+        // 重定义配置参数
+        context.result = [];
+        context.count = context.count || Number.MAX_VALUE;
+        context.needFilter = keys.length > 0;
+        context.startIndex = context.startIndex || context.skip || 0;
+        context.endIndex = context.startIndex; // 初始化为开始位置
+        context.conds = memset.parseQuery(selector);
+        context.callback = callback;
+        context.chain = chain;
+        context.advance = context.advance || true;
+        // 请求枚举函数
+        request.onsuccess = exports.findSuccess.bind(context);
+        
+        if (request.continue) {
+            request.continue();
+        }
+        return chain;
+    };
 
-                if (value && cursor.continue) {
-                    cursor.continue();
-                }
-            }
-            else {
-                callback && callback(cursor);
-                var info = {
-                    startIndex: startIndex,
-                    endIndex: context.endIndex
-                };
-                // 注意默认强制注入改信息；为了方便之后继续查询
-                result.info = info;
-                deferred.resolve(result);
-                 // 释放连接
-                context.db.close();
-            }
+    /**
+     * Id遍历选择器
+     *
+     * @param {Array<number>} array id列表
+     * @param {Object} store 所遍历的表对象
+     */
+    function IteRequest(array, store) {
+        var cur = 0;
+        var me = this;
+        var cursor = {
+            'update': store.put.bind(store),
+            'delete': store.delete.bind(store)
         };
-        return deferred;
+
+        this.get = function (id) {
+            if (id === undefined) {
+                me.onsuccess({target: store});
+                return;
+            }
+            var req = store.get(id);
+            req.onsuccess = function (e) {
+                cursor.value = e.target.result;
+                if (cursor.value) {
+                    cursor.id = cursor.value[store.keyPath];
+                }
+                e.target.data = cursor;
+                me.onsuccess(e);
+            };
+        };
+
+        this.onsuccess = function (e) {
+            var value = e.target.result;
+        };
+
+        this.continue = function () {
+            var id = array[cur++];
+            this.get(id);
+        };
+        cursor.continue = this.continue.bind(this);
+    }
+
+
+    exports.findSuccess = function (e) {
+        var context = this; // 通过this传递闭包参数
+        var conds = this.conds;
+        var callback = this.callback;
+        var result = this.result;
+        var chain = this.chain;
+        var needFilter = this.needFilter;
+        var startIndex = context.startIndex;
+
+        var cursor = e.target.data || e.target.result;
+        // 如果指定了跳跃数，从跳跃数重新开始查询
+        if (context.advance && cursor) {
+            context.advance = false;
+            if (context.startIndex > 0) {
+                cursor.advance(context.startIndex);
+                return;
+            }
+        }
+        if (cursor && result.length < context.count) {
+            context.endIndex++; // 记录本次查找条件下的结束位置
+            var value = cursor.value || cursor;
+            var isMatch = true;
+            if (needFilter) {
+                isMatch = memset.isMatch(value, conds);
+            }
+            // 只有符合了表达式的判断,才有必要进行下一步验证
+            if (isMatch && context.filter) {
+                isMatch = !!context.filter(value);
+            }
+            // 如果匹配才存库
+            if (isMatch) {
+                callback && callback(cursor);
+                result.push(value);
+            }
+            // cursor.fail 是callback中修改的
+            if (cursor.continue) {
+                cursor.continue();
+            }
+        }
+        else {
+            callback && callback(cursor);
+            var info = {
+                startIndex: startIndex,
+                endIndex: context.endIndex
+            };
+            // 注意默认强制注入改信息；为了方便之后继续查询
+            result.info = info;
+            chain.resolve(result);
+        }
     };
 });

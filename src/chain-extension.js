@@ -44,7 +44,7 @@ define(function (require, exports) {
                 if (typeof fullfill === 'function') {
                     work = fullfill(data);
                 }
-                if (work.then) {
+                if (work && work.then) {
                     return work.then(
                         function (rst) {
                             chain.resolve(rst);
@@ -70,11 +70,76 @@ define(function (require, exports) {
         });
     };
 
+    /**
+     * reduce 是根据前后累积方式计算汇总结果
+     * @param  {Function} reduceFunc 转化处理函数
+     * @return {Chain}
+     */
+    Chain.prototype.reduce = function (reduceFunc) {
+        return this.pipe(function (data) {
+            return [].concat(data).reduce(reduceFunc);
+        });
+    };
+
+    Chain.prototype.filter = function (filterFunc) {
+        return this.pipe(function (data) {
+            return (data || []).filter(filterFunc);
+        });
+    };
+
+    /**
+     * sum 是根据前后累积方式计算汇总结果
+     * @param  {Array} fields 相关处理域
+     * @return {Array} 结果
+     */
+    Chain.prototype.sum = function (fields) {
+        return this.pipe(function (data) {
+            if (!data.length) {
+                return data;
+            }
+            fields = fields || Object.keys(data[0]);
+            var summary = {};
+            fields.forEach(function (field) {
+                summary[field] = 0;
+            });
+
+            var list = [summary].concat(data);
+
+            list.reduce(function (rst, cur, idx) {
+                fields.forEach(function (field) {
+                    rst[field] += +cur[field] ? +cur[field] : 0;
+                });
+                return rst;
+            });
+            return list;
+        });
+    };
+
+    Chain.prototype.appendTo = function (target) {
+        return this.pipe(function (data) {
+            Array.prototype.push.apply(target, data);
+            return target;
+        });
+    };
+
+    /**
+     * 支持字段切面
+     * - grep('planname', 'planid')
+     * - grep(['planname'])
+     * @param  {Array.<string>|string} fields [description]
+     * @return {Array}
+     */
     Chain.prototype.grep = function (fields) {
+        if (arguments.length > 1) {
+            fields = Array.prototype.slice.call(arguments);
+        }
+        else {
+            fields = [].concat(fields);
+        }
         return this.map(function (item) {
             return memset.cut(item, fields);
         });
-    }
+    };
 
     /**
      * 更新数据
@@ -90,7 +155,7 @@ define(function (require, exports) {
     /**
      * 合并列表
      * @param {Array|Object} toJoin 合并对象
-     * @param {string=} 合并key
+     * @param {string=} key 合并key
      * @return {Chain}
      */
     Chain.prototype.join = function (toJoin, key) {
@@ -122,7 +187,7 @@ define(function (require, exports) {
         if (!Array.isArray(data)) {
             return data;
         }
-        return data.map(mapFunc);
+        return Chain.resolve(data.map(mapFunc));
     };
 
     exports.cut = function (data, option) {

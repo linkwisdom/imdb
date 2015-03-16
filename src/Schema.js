@@ -9,10 +9,5 @@ define(function (require, exports) {
 
     }
 
-    // 验证单条数据
-    Schema.prototype.validate = function () {
-        return true;
-    };
-
     return Schema;
 });

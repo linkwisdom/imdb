@@ -1,9 +1,9 @@
 /**
  * @file webSql构建接口
- * 
+ *
  * @author Liandong Liu (liuliandong01@baidu.com)
  */
- 
+
 define(function (require, exports, module) {
     var Promise = require('./Promise');
 
@@ -25,7 +25,7 @@ define(function (require, exports, module) {
     };
 
     // 打开数据库
-    exports.open = function() {
+    exports.open = function () {
         if (!this.dbName) {
             this.db = exports.create(DEFAULT_DB_NAME, DEFAULT_OPTION);
         }
@@ -33,7 +33,7 @@ define(function (require, exports, module) {
         var dbName = db.dbName;
         var option = db.option || DEFAULT_OPTION;
 
-        var db = openDatabase(
+        db = openDatabase(
             dbName, // 数据库名称
             option.version, // 数据库版本
             option.description, // 数据库描述
@@ -46,7 +46,7 @@ define(function (require, exports, module) {
                         t.executeSql('CREATE TABLE docids (id, name)');
                     },
                     function (error) {
-                        console.error(error);
+                        // console.error(error);
                     }
                 );
             }
@@ -56,7 +56,7 @@ define(function (require, exports, module) {
     };
 
     // 获取请求连接
-    exports.getQuery = function(sql, patches, promise) {
+    exports.getQuery = function (sql, patches, promise) {
         return function (tx) {
             tx.executeSql(
                 sql, patches,
@@ -71,28 +71,30 @@ define(function (require, exports, module) {
     };
 
     // 执行命令
-    exports.executeSql = function(sql, patches, readOnly) {
+    exports.executeSql = function (sql, patches, readOnly) {
         if (!this.db) {
             this.db = this.open();
-        };
+        }
 
         var promise = new Promise();
 
         if (readOnly) {
             this.db.readTransaction(exports.getQuery(sql, patches || [], promise));
-        } else {
+        }
+        else {
             this.db.transaction(exports.getQuery(sql, patches || [], promise));
         }
-        
+
         promise.done(function (data) {
             var result = [];
             if (data.rows.length) {
                 for (var i = 0, len = data.rows.length; i < len; i++) {
                     result.push(data.rows.item(i));
                 }
-                console.table(result);
-            } else {
-                console.log(data.rowsAffected);
+                // console.table(result);
+            }
+            else {
+                // console.log(data.rowsAffected);
             }
         });
 

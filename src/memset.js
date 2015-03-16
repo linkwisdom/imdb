@@ -5,8 +5,6 @@
  */
 
 define(function (require, exports) {
-    var logger = window.logger || window.console;
-
     /**
      * Memset 构造函数
      * @constructor
@@ -59,36 +57,66 @@ define(function (require, exports) {
         return target;
     };
 
-    Memset.resolveValue = function (source, item, key) {
+    /**
+     * 解析特定字段更新
+     * Memset.resolveValue(
+     *     {winfoid: 112, bid: 10},
+     *     {id: '@winfoid', bid: {$inc: 12}},
+     *     'bid'
+     * );
+     * => {winfoid: 112, bid: 22}
+     * - $opt 参考 `Memset.assignValue`
+     * @param  {Object} target 更新条件
+     * @param  {Object} source 被更新对象
+     * @param  {string} key    更新字段
+     * @return {*} 更新后的值
+     */
+    Memset.resolveValue = function (target, source, key) {
         var value = source[key];
         var tp = typeof value;
-        if ('object' === typeof value) {
+        if (value && 'object' === typeof value) {
             var keys = Object.keys(value);
             var ov = value;
+            var flag = false;
             keys.forEach(function (opt) {
-                item[key] = Memset.assignValue(opt, item[key], ov[opt]);
+                if (opt.charAt(0) === '$') {
+                    flag = true;
+                    target[key] = Memset.assignValue(opt, target[key], ov[opt]);
+                }
             });
-            value = item[key];
+            value = flag ? target[key] : value;
         }
         else if (tp === 'string' && value.charAt(0) === '@') {
             var tkey = value.substr(1);
-            var tvalue = item[tkey];
+            var tvalue = target[tkey];
             if (tkey === '') {
-                tvalue = Memset.mix({}, item)
+                tvalue = Memset.mix({}, target);
             }
-            value = item[key] = tvalue;
+            // 如果未定义相关字段或值，不改变赋值情况
+            if (tvalue === undefined) {
+                tvalue = source[key];
+            }
+            value = target[key] = tvalue;
+            
         }
         return value;
     };
 
     /**
-     * @planid 
-     * $rand
+     * 按条件更新对象
+     * Memset.update(
+     *     {id: '@winfoid', bid: {$inc: 12}},
+     *     {winfoid: 112, bid: 10}
+     * );
+     * => {winfoid: 112, bid: 22, id: 112}
+     * @param  {Object} target 目标对象
+     * @param  {Object} source 更新条件
+     * @return {Object} 更新结果
      */
     Memset.update = function (target, source) {
         for (var key in source) {
             if (source.hasOwnProperty(key)) {
-                target[key] = Memset.resolveValue(source, target, key);
+                target[key] = Memset.resolveValue(target, source, key);
             }
         }
         return target;
@@ -114,7 +142,7 @@ define(function (require, exports) {
             set1.forEach(function (item, idx) {
                 var k = item[key];
                 var ex = set2[map[k]];
-                Memset.mix(item, ex);
+                ex ? Memset.mix(item, ex) : item;
             });
         }
         else if (Array.isArray(set1) && Array.isArray(set2)) {
@@ -135,6 +163,27 @@ define(function (require, exports) {
     };
 
     /**
+     * 解析过滤条件
+     * Memset.parseFilter(
+     *     [
+     *         {planid: {$gte: 0}},
+     *         {planname: {$like: '鲜花'}},
+     *     ]
+     * );
+     * => 返回符合或条件的集合
+     * @param  {Array} selector 查询条件集合
+     * @return {Function} 过滤条件
+     */
+    Memset.parseFilter = function (selector) {
+        var selectors = [].concat(selector);
+        return function (item) {
+            return selectors.some(function (filter) {
+                return Memset.isMatchSelector(item, filter);
+            }) && item;
+        };
+    };
+
+    /**
      * 转化查询结果
      * @param  {Array} query 查询条件
      * @return {Array} 查询条件数组
@@ -142,7 +191,7 @@ define(function (require, exports) {
     Memset.parseQuery = function (query) {
         var res = [];
         if (!Array.isArray(query)) {
-            query = [query];
+            query = [].concat(query);
         }
 
         query.forEach(function (cond) {
@@ -150,7 +199,7 @@ define(function (require, exports) {
             var keys = Object.keys(cond);
             keys.forEach(function (key) {
                 if (typeof cond[key] === 'object') {
-                    var condition = Object.keys(cond[key]);
+                    var condition = Object.keys(cond[key] || {});
                     condition.forEach(function (cd) {
                         res.push({
                             field: key,
@@ -171,7 +220,6 @@ define(function (require, exports) {
         });
         return res;
     };
-
     /**
      * 是否符合匹配规则
      * @param  {string}  opt 比较符
@@ -189,20 +237,28 @@ define(function (require, exports) {
                 return val1 >= val2;
             case '$lte':
                 return val1 <= val2;
-            case '$ne':
-                return val1 !== val2;
+            case '$e': // 逻辑等价
+                return val1 == val2;
+            case '$ne': // 非逻辑等价
+                return !(val1 == val2);
             case '$eq':
                 return val1 === val2;
-            case '$neq':
-                return val1 !== val2;
+            case '$neq': // 完全等价
+                return !(val1 === val2);
+            case '$with': // 用于字串匹配即可
+                return val1.indexOf(val2) > -1;
             case '$between':
                 return val1 > val2[0] && val1 < val2[1];
-            case '$in':
+            case '$in': // 属于集合
                 return val2.indexOf(val1) > -1;
+            case '$out': // 不属于集合
+                return val2.indexOf(val1) == -1;    
             case '$null':
                 return (val1 === null) === val2;
             case '$like':
                 return new RegExp(val2, 'i').test(val1);
+            default:
+                return val1 == val2;
         }
     };
 
@@ -217,6 +273,24 @@ define(function (require, exports) {
         switch (opt) {
             case '$rand':
                 return Math.ceil(Math.random() * val2);
+            case '$replace':
+                if (Array.isArray(val2)) {
+                    return val1.replace(val2[0], val2[1]);
+                }
+                else {
+                    return val2;
+                }
+            case '$range':
+                if (Array.isArray(val2)) {
+                    return Math.max(val2[0], Math.min(val2[1], val1));
+                }
+                return Math.min(val1, val2);
+            case '$trim':
+                return val1.trim();
+            case '$prepend':
+                return val2 + val1;
+            case '$append':
+                return val1 + val2;
             case '$inc':
                 return val1 + val2;
             case '$multiply':
@@ -241,17 +315,42 @@ define(function (require, exports) {
         });
         return newObj;
     };
-
+    Memset.parseSubQuery = function (key, subs) {
+        return subs.map(function (sub) {
+            var obj = {};
+            obj[key] = sub;
+            return obj;
+        });
+    }
     /**
      * 判断是否完全匹配
-     * @param  {Object}  item  源对象
-     * @param  {Object}  conds 匹配条件
+     * db.plan.find({planname: {$or: [{$with: 'aa'}, {$width: 'plan'} ]}})
+     *
+     * db.plan.find({wbudget: {$gt: 20}, planname: {$or: [{$with: 'aa'}, {$width: 'plan'} ]}})
+     * 
+     * @param  {Object|*}  item  源对象
+     * @param  {Array}  conds 匹配条件
      * @return {boolean}
      */
     Memset.isMatch = function (item, conds) {
         return (conds || []).every(function (cond) {
             var key = cond.field;
-            return Memset.isMatchRule(cond.operand, item[key], cond.value);
+            var raw = item[key];
+            if (cond.operand === '$or' && Array.isArray(cond.value)) {
+                var subs = Memset.parseSubQuery(key, cond.value);
+                subs = Memset.parseQuery(subs);
+                return subs.some(function (sub) {
+                    return Memset.isMatchRule(sub.operand, raw, sub.value);
+                });
+            }
+            else if (cond.operand === '$and' && Array.isArray(cond.value)) {
+                var subs = Memset.parseSubQuery(key, cond.value);
+                subs = Memset.parseQuery(subs);
+                return subs.every(function (sub) {
+                    return Memset.isMatchRule(sub.operand, raw, sub.value);
+                });
+            }
+            return Memset.isMatchRule(cond.operand, raw, cond.value);
         });
     };
 

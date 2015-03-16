@@ -9,7 +9,13 @@ define(function (require, exports) {
     var Schema = require('./Schema');
     var idb = require('./imdb');
     var View = require('./View');
+    var memset = require('./memset');
 
+    /**
+     * 数据库模型定义
+     * @constructor
+     * @param {Object} option 配置参数
+     */
     function StoreSchema(option) {
         for (var key in option) {
             if (key === 'config' && this.config) {
@@ -26,67 +32,21 @@ define(function (require, exports) {
             }
         }
 
-        // 绑定模式约束
-        if (this.schema) {
-            bindSchemaConstrains(this);
-        }
-
         Schema.call(this, option);
     }
 
+    /**
+     * 继承模式原型
+     * @type {Object}
+     */
     StoreSchema.prototype = Object.create(Schema.prototype);
 
-//     function getPatch(patch) {
-//         if (typeof patch === 'object') {
-//             if (patch.$rand) {
-//                 return Math.ceil(Math.random() * patch.$rand);
-//             }
-//         }
-//         return patch;
-//     }
-
-//     function bindFixer(defaultValue) {
-//         return function (item) {
-//             for (var key in defaultValue) {
-//                 if (!item.hasOwnProperty(key) || item[key] === null) {
-//                     item[key] = getPatch(defaultValue[key]);
-//                 }
-//             }
-//         }
-//     }
-
-    function getValidator(validator) {
-        return function (list) {
-            if (!Array.isArray(list)) {
-                list = [list];
-            }
-            var error = {};
-            var flag = true;
-            list.forEach(function (item, index) {
-                var info = validator(item);
-                if (info !== true) {
-                    error[index] = error;
-                    flag = false;
-                }
-            });
-            return flag || error;
-        };
-    }
-
-    function bindSchemaConstrains(store) {
-        var schema = store.schema;
-
-        // 默认字段补全
-//         if (schema.defaultValue) {
-//             store.fixItem = bindFixer(schema.defaultValue);
-//         }
-
-        // 验证器绑定
-        if (schema.validator) {
-            store.validate = getValidator(schema.validator);
-        }
-    }
-
+    /**
+     * 获取数据库连接
+     * @param  {string} storeName 默认连接的数据表名称
+     * @param  {Object=} option 可选参数
+     * @return {Promise}
+     */
     function getConnection(storeName, option) {
         var dbName = option.dbName;
         var chain = idb.open({
@@ -104,6 +64,12 @@ define(function (require, exports) {
         );
     }
 
+    /**
+     * 数据集缓存翻页
+     * @param  {Object} selector 查询条件
+     * @param  {Object=} params 可选参数
+     * @return {Promise}
+     */
     StoreSchema.prototype.page = function (selector, params) {
         params = params || {};
         var pageSize = params.pageSize = params.pageSize || params.count || 100;
@@ -116,6 +82,13 @@ define(function (require, exports) {
         return view;
     };
 
+    /**
+     * 获取数据库请求链接
+     * @param  {Object} selector 查询条件
+     * @param  {Object=} params 可选参数
+     * @param  {Function=} callback 请求回调函数
+     * @return {Promise}
+     */
     StoreSchema.prototype.query = function (selector, params, callback) {
         selector = selector || {};
         params = params || {};
@@ -137,21 +110,31 @@ define(function (require, exports) {
                 }
             }
 
-            // 如果传入数据是promse，需要多一次请求后再请求
+            // 如果传入数据是promise，需要多一次请求后再请求
             if ('function'  === typeof selector.then) {
                 return selector.then(function (selector) {
                     var state = callback(selector, context);
                     return state.then(function (data) {
+                        // 哪里开的db连接,哪里负责关.以防止 update调用find的时候,find结束就关闭连接的问题.
+                        context.db.close();
                         promise.resolve(data);
                         return data;
                     });
                 });
             }
 
-            var state = callback(selector, context);
-
+            try {
+                 var state = callback(selector, context);
+            } catch (ex) {
+                return Chain.reject({
+                    error: ex,
+                    data: selector
+                });
+            }
             // 只有请求数据回来后才算完成
             return state.then(function (data) {
+                // 哪里开的db连接,哪里负责关.以防止 update调用find的时候,find结束就关闭连接的问题.
+                context.db.close();
                 promise.resolve(data);
                 return data;
             });
@@ -162,11 +145,18 @@ define(function (require, exports) {
         return promise;
     };
 
+    /**
+     * 查找符合条件的数据集
+     * @param  {Object} selector 查询条件
+     * @param  {Object=} params 可选参数
+     * @return {Promise}
+     */
     StoreSchema.prototype.find = function (selector, params) {
         return this.query(selector, params, function (selector, context) {
             var state;
-            if (typeof selector === 'string'
-                || typeof selector === 'number'
+            var tp = typeof selector;
+            if (tp === 'string'
+                || tp === 'number'
                 || Array.isArray(selector)) {
                 // id 查找
                 state = idb.getItem(selector, context);
@@ -175,18 +165,29 @@ define(function (require, exports) {
                 // 索引查找
                 state = idb.find(selector, context);
             }
+            if (context.filter && typeof context.filter === 'object') {
+                context.filter = memset.parseFilter(context.filter);
+            }
             return state;
         });
     };
 
+    /**
+     * 查看是否包含特定条件的数据
+     * @param  {Object} selector 查询条件
+     * @param  {Object=} params 可选参数
+     * @return {Promise}
+     */
     StoreSchema.prototype.contains = function (selector, params) {
         return this.query(selector, params, function (selector, context) {
             return idb.contains(selector, context);
         });
     };
-    
+
     /**
      * 清除数据库
+     * @param {Array} stores 待删除表
+     * @return {Promise}
      */
     StoreSchema.prototype.clear = function (stores) {
         return this.query({}, {stores: stores}, function (option, context) {
@@ -194,6 +195,12 @@ define(function (require, exports) {
         });
     };
 
+    /**
+     * 删除数据集
+     * @param  {Object} selector 查询条件
+     * @param  {Object=} params 可选参数
+     * @return {Promise}
+     */
     StoreSchema.prototype.remove = function (selector, params) {
         var handler = function (selector, context) {
             var state;
@@ -226,13 +233,30 @@ define(function (require, exports) {
         return this.query(selector, params, handler);
     };
 
-    StoreSchema.prototype.update = function (selector, params) {
+    /**
+     * 更新数据集
+     * @param  {Object} selector 查询条件
+     * @param  {Object=} params 可选参数
+     * @param  {boolean=} wild 是否params为更新条件
+     * @return {Promise}
+     */
+    StoreSchema.prototype.update = function (selector, params, option) {
+        if (option && params) {
+            option.$set = params;
+            params = option;
+        }
         var handler = function (selector, context) {
             return idb.update(selector, context);
         };
         return this.query(selector, params, handler);
     };
 
+    /**
+     * 插入数据集
+     * @param  {Object} data 查询条件
+     * @param  {Object=} params 可选参数
+     * @return {Promise}
+     */
     StoreSchema.prototype.insert = function (data, params) {
         params = params || {};
 
@@ -256,6 +280,12 @@ define(function (require, exports) {
         return this.query(data, params, handler);
     };
 
+    /**
+     * 查看数据集数量
+     * @param  {Object} selector 查询条件
+     * @param  {Object=} params 可选参数
+     * @return {Promise}
+     */
     StoreSchema.prototype.count = function (selector, params) {
         var handler = function (selector, context) {
             var keySize = Object.keys(selector).length;

@@ -922,6 +922,9 @@ define(function (require, exports, module) {
             if (cursor.continue) {
                 cursor.continue();
             }
+            else {
+                context.chain.resolve(result);
+            }
         }
         else {
             callback && callback(cursor);
